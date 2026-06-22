@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<title>Salida de Stock</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0f1117;
+  --surface:#1a1d27;
+  --surface2:#22263a;
+  --border:#2e334d;
+  --text:#f0f2ff;
+  --text2:#8b91b0;
+  --green:#22c55e;
+  --green-dim:#16532d;
+  --red:#ef4444;
+  --red-dim:#7f1d1d;
+  --amber:#f59e0b;
+  --blue:#3b82f6;
+  --radius:14px;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif}
+
+/* PANTALLA SELECTOR DE LOCAL */
+#screen-local{
+  position:fixed;inset:0;display:flex;flex-direction:column;
+  background:var(--bg);z-index:10;
+}
+#screen-local.hidden{display:none}
+
+.screen-header{
+  padding:env(safe-area-inset-top,20px) 20px 16px;
+  padding-top:calc(env(safe-area-inset-top,20px) + 16px);
+  border-bottom:1px solid var(--border);
+}
+.screen-header h1{font-size:20px;font-weight:700;letter-spacing:-0.3px}
+.screen-header p{font-size:13px;color:var(--text2);margin-top:4px}
+
+.local-list{
+  flex:1;overflow-y:auto;padding:16px;
+  display:flex;flex-direction:column;gap:10px;
+}
+.local-btn{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:18px 20px;
+  display:flex;align-items:center;gap:14px;
+  cursor:pointer;transition:background .15s,border-color .15s;
+  width:100%;text-align:left;color:var(--text);
+}
+.local-btn:active{background:var(--surface2)}
+.local-btn .icon{
+  width:40px;height:40px;border-radius:10px;
+  background:var(--surface2);display:flex;align-items:center;
+  justify-content:center;font-size:18px;flex-shrink:0;
+}
+.local-btn .name{font-size:16px;font-weight:600}
+.local-btn .sub{font-size:12px;color:var(--text2);margin-top:2px}
+.local-loading{text-align:center;padding:40px;color:var(--text2);font-size:14px}
+.local-error{
+  background:var(--red-dim);border:1px solid var(--red);
+  border-radius:var(--radius);padding:16px;margin:16px;
+  font-size:13px;color:#fca5a5;
+}
+
+/* PANTALLA SCANNER */
+#screen-scanner{
+  position:fixed;inset:0;display:flex;flex-direction:column;
+  background:#000;
+}
+#screen-scanner.hidden{display:none}
+
+/* VIDEO DE CÁMARA - ocupa toda la pantalla */
+#video{
+  position:absolute;inset:0;width:100%;height:100%;
+  object-fit:cover;
+}
+
+/* OVERLAY SUPERIOR */
+.scan-header{
+  position:relative;z-index:2;
+  padding:env(safe-area-inset-top,20px) 16px 12px;
+  padding-top:calc(env(safe-area-inset-top,20px) + 12px);
+  background:linear-gradient(to bottom,rgba(0,0,0,.85) 0%,transparent 100%);
+  display:flex;align-items:center;gap:10px;
+}
+.btn-back{
+  background:rgba(255,255,255,.15);border:none;border-radius:10px;
+  color:#fff;padding:8px 12px;font-size:13px;font-weight:600;
+  cursor:pointer;display:flex;align-items:center;gap:6px;
+  backdrop-filter:blur(8px);
+}
+.local-badge{
+  flex:1;background:rgba(255,255,255,.12);border-radius:10px;
+  padding:8px 14px;font-size:13px;font-weight:600;color:#fff;
+  text-align:center;backdrop-filter:blur(8px);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+/* VISOR DE ESCÁNER */
+.scan-viewfinder{
+  position:absolute;
+  top:50%;left:50%;transform:translate(-50%,-55%);
+  width:220px;height:220px;z-index:2;
+}
+.scan-viewfinder::before,.scan-viewfinder::after{
+  content:'';position:absolute;width:40px;height:40px;border-color:#fff;
+  border-style:solid;border-radius:4px;
+}
+.scan-viewfinder::before{top:0;left:0;border-width:3px 0 0 3px}
+.scan-viewfinder::after{top:0;right:0;border-width:3px 3px 0 0}
+.vf-br,.vf-bl{
+  position:absolute;width:40px;height:40px;border-color:#fff;
+  border-style:solid;border-radius:4px;bottom:0;
+}
+.vf-br{right:0;border-width:0 3px 3px 0}
+.vf-bl{left:0;border-width:0 0 3px 3px}
+
+/* LÍNEA ANIMADA DE ESCANEO */
+.scan-line{
+  position:absolute;top:0;left:4px;right:4px;height:2px;
+  background:linear-gradient(to right,transparent,var(--green),transparent);
+  animation:scanline 2s ease-in-out infinite;
+  box-shadow:0 0 8px var(--green);
+}
+@keyframes scanline{
+  0%{top:0;opacity:1}
+  50%{top:calc(100% - 2px);opacity:1}
+  100%{top:0;opacity:1}
+}
+
+.scan-hint{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,60px);
+  z-index:2;color:rgba(255,255,255,.7);font-size:13px;font-weight:500;
+  text-align:center;letter-spacing:0.2px;
+}
+
+/* PANEL INFERIOR - resultado del escaneo */
+.scan-footer{
+  position:absolute;bottom:0;left:0;right:0;z-index:3;
+  padding:0 16px calc(env(safe-area-inset-bottom,16px) + 16px);
+  background:linear-gradient(to top,rgba(0,0,0,.9) 0%,transparent 100%);
+  min-height:140px;display:flex;flex-direction:column;justify-content:flex-end;gap:10px;
+}
+
+/* TOAST DE RESULTADO */
+.toast{
+  border-radius:var(--radius);padding:14px 16px;
+  display:flex;align-items:flex-start;gap:12px;
+  animation:slideUp .25s ease;
+  transition:opacity .3s;
+}
+.toast.ok{background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.4)}
+.toast.err{background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.4)}
+.toast.warn{background:rgba(245,158,11,.2);border:1px solid rgba(245,158,11,.4)}
+.toast-icon{font-size:20px;flex-shrink:0;margin-top:1px}
+.toast-title{font-size:14px;font-weight:700;color:#fff}
+.toast-sub{font-size:12px;color:rgba(255,255,255,.65);margin-top:2px}
+@keyframes slideUp{from{transform:translateY(16px);opacity:0}to{transform:none;opacity:1}}
+
+/* CONTADOR */
+.scan-counter{
+  display:flex;justify-content:space-between;align-items:center;
+  background:rgba(0,0,0,.5);border-radius:10px;padding:10px 14px;
+  backdrop-filter:blur(8px);
+}
+.counter-num{font-size:24px;font-weight:800;color:var(--green)}
+.counter-label{font-size:11px;color:rgba(255,255,255,.5);font-weight:500;letter-spacing:0.5px;text-transform:uppercase}
+.counter-right{text-align:right}
+
+/* BEEP VISUAL (flash al escanear) */
+.flash-overlay{
+  position:fixed;inset:0;background:#fff;opacity:0;z-index:100;
+  pointer-events:none;transition:opacity .1s;
+}
+.flash-overlay.flash{opacity:0.3}
+
+/* HISTORIAL (slide desde abajo) */
+#historial-panel{
+  position:fixed;inset:0;z-index:20;
+  background:var(--bg);transform:translateY(100%);
+  transition:transform .3s cubic-bezier(.32,0,.67,0);
+  display:flex;flex-direction:column;
+}
+#historial-panel.open{transform:translateY(0)}
+.hist-header{
+  padding:env(safe-area-inset-top,20px) 16px 16px;
+  padding-top:calc(env(safe-area-inset-top,20px)+16px);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.hist-header h2{font-size:18px;font-weight:700}
+.btn-close{
+  background:var(--surface2);border:none;border-radius:8px;
+  color:var(--text2);padding:8px 14px;font-size:13px;cursor:pointer;
+}
+.hist-list{flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:8px}
+.hist-item{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;padding:12px 14px;
+}
+.hist-item .hi-var{font-size:14px;font-weight:600}
+.hist-item .hi-sub{font-size:12px;color:var(--text2);margin-top:3px}
+.hist-empty{text-align:center;padding:40px;color:var(--text2);font-size:14px}
+
+/* BTN HISTORIAL */
+.btn-historial{
+  background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);
+  border-radius:10px;color:#fff;padding:10px 16px;font-size:13px;
+  font-weight:600;cursor:pointer;backdrop-filter:blur(8px);
+  display:flex;align-items:center;justify-content:center;gap:6px;
+}
+
+/* SPINNER */
+.spinner{display:inline-block;width:14px;height:14px;
+  border:2px solid rgba(255,255,255,.2);border-top-color:#fff;
+  border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div class="flash-overlay" id="flash"></div>
+
+<!-- PANTALLA 1: ELEGIR LOCAL -->
+<div id="screen-local">
+  <div class="screen-header">
+    <h1>📦 Salida de Stock</h1>
+    <p>Elegí el local destino para empezar a escanear</p>
+  </div>
+  <div class="local-list" id="local-list">
+    <div class="local-loading"><span class="spinner"></span> Cargando locales...</div>
+  </div>
+</div>
+
+<!-- PANTALLA 2: SCANNER -->
+<div id="screen-scanner" class="hidden">
+  <video id="video" autoplay playsinline muted></video>
+
+  <div class="scan-header">
+    <button class="btn-back" onclick="volverALocales()">← Cambiar</button>
+    <div class="local-badge" id="local-badge">—</div>
+  </div>
+
+  <div class="scan-viewfinder">
+    <div class="scan-line"></div>
+    <div class="vf-br"></div>
+    <div class="vf-bl"></div>
+  </div>
+  <div class="scan-hint">Apuntá al código QR de la caja</div>
+
+  <div class="scan-footer">
+    <div id="toast-area"></div>
+    <div class="scan-counter">
+      <div>
+        <div class="counter-label">Escaneadas hoy</div>
+        <div class="counter-num" id="cnt-total">0</div>
+      </div>
+      <div class="counter-right">
+        <div class="counter-label">Última caja</div>
+        <div style="font-size:13px;color:var(--text2);margin-top:4px" id="cnt-last">—</div>
+      </div>
+    </div>
+    <button class="btn-historial" onclick="abrirHistorial()">
+      📋 Ver historial de esta sesión
+    </button>
+  </div>
+</div>
+
+<!-- PANEL HISTORIAL -->
+<div id="historial-panel">
+  <div class="hist-header">
+    <h2>Historial de sesión</h2>
+    <button class="btn-close" onclick="cerrarHistorial()">Cerrar</button>
+  </div>
+  <div class="hist-list" id="hist-list"></div>
+</div>
+
+<script>
+const SB='https://ugmjfvgjumpnvbfskcgl.supabase.co';
+const SK='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVnbWpmdmdqdW1wbnZiZnNrY2dsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1MjU4OTIsImV4cCI6MjA5NDEwMTg5Mn0.fmf7Isp5rDi10mq0VjahWRCgl6J4mD8-ib89DKWtPLs';
+const H={'apikey':SK,'Authorization':'Bearer '+SK,'Content-Type':'application/json'};
+
+const get=async(t,f='')=>{
+  const r=await fetch(`${SB}/rest/v1/${t}?${f}`,{headers:H});
+  if(!r.ok)throw new Error(await r.text());
+  return r.json();
+};
+const pat=async(t,id,d)=>{
+  const r=await fetch(`${SB}/rest/v1/${t}?id=eq.${id}`,{
+    method:'PATCH',headers:{...H,'Prefer':'return=representation'},body:JSON.stringify(d)
+  });
+  if(!r.ok)throw new Error(await r.text());
+  return r.json();
+};
+
+// Estado
+let localActual=null;
+let stream=null;
+let scanning=false;
+let lastCode='';
+let lastCodeTime=0;
+let sesion=[];   // historial de esta sesión
+let cntTotal=0;
+let barcodeDetector=null;
+let rafId=null;
+let canvas,ctx;
+
+// ===================== LOCALES =====================
+async function cargarLocales(){
+  const el=document.getElementById('local-list');
+  try{
+    const data=await get('sucursales','order=nombre.asc');
+    if(!data.length){
+      el.innerHTML='<div class="local-loading">No hay locales configurados en la tabla sucursales.</div>';
+      return;
+    }
+    el.innerHTML='';
+    const iconos=['🏪','🏬','🍽️','🏠','🚚','⭐'];
+    data.forEach((s,i)=>{
+      const btn=document.createElement('button');
+      btn.className='local-btn';
+      btn.innerHTML=`
+        <div class="icon">${iconos[i%iconos.length]}</div>
+        <div>
+          <div class="name">${s.nombre||s.name||s.id}</div>
+          <div class="sub">Tap para seleccionar</div>
+        </div>`;
+      btn.onclick=()=>seleccionarLocal(s);
+      el.appendChild(btn);
+    });
+  }catch(e){
+    el.innerHTML=`<div class="local-error">Error al cargar locales: ${e.message}</div>`;
+  }
+}
+
+function seleccionarLocal(s){
+  localActual=s;
+  document.getElementById('local-badge').textContent=s.nombre||s.name||s.id;
+  document.getElementById('screen-local').classList.add('hidden');
+  document.getElementById('screen-scanner').classList.remove('hidden');
+  iniciarCamara();
+}
+
+function volverALocales(){
+  detenerCamara();
+  document.getElementById('screen-scanner').classList.add('hidden');
+  document.getElementById('screen-local').classList.remove('hidden');
+  localActual=null;
+}
+
+// ===================== CÁMARA Y ESCÁNER =====================
+async function iniciarCamara(){
+  scanning=false;
+  try{
+    // Preferir cámara trasera
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},
+      audio:false
+    });
+    const video=document.getElementById('video');
+    video.srcObject=stream;
+    await video.play();
+
+    // Configurar canvas para análisis de frames
+    canvas=document.createElement('canvas');
+    ctx=canvas.getContext('2d');
+
+    // Intentar BarcodeDetector nativo (Chrome Android)
+    if('BarcodeDetector' in window){
+      barcodeDetector=new BarcodeDetector({formats:['qr_code']});
+      video.addEventListener('loadedmetadata',()=>{
+        canvas.width=video.videoWidth;
+        canvas.height=video.videoHeight;
+        scanning=true;
+        scanLoop();
+      });
+    } else {
+      // Fallback: cargar jsQR
+      await cargarJsQR();
+      video.addEventListener('loadedmetadata',()=>{
+        canvas.width=video.videoWidth;
+        canvas.height=video.videoHeight;
+        scanning=true;
+        scanLoop();
+      });
+    }
+  }catch(e){
+    mostrarToast('err','Sin acceso a la cámara',e.message);
+  }
+}
+
+function detenerCamara(){
+  scanning=false;
+  if(rafId)cancelAnimationFrame(rafId);
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  stream=null;
+}
+
+async function cargarJsQR(){
+  return new Promise((res,rej)=>{
+    if(window.jsQR)return res();
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+    s.onload=res;s.onerror=rej;
+    document.head.appendChild(s);
+  });
+}
+
+async function scanLoop(){
+  if(!scanning)return;
+  const video=document.getElementById('video');
+  if(video.readyState===video.HAVE_ENOUGH_DATA){
+    try{
+      let codigo=null;
+      if(barcodeDetector){
+        const codes=await barcodeDetector.detect(video);
+        if(codes.length)codigo=codes[0].rawValue;
+      } else if(window.jsQR){
+        ctx.drawImage(video,0,0,canvas.width,canvas.height);
+        const img=ctx.getImageData(0,0,canvas.width,canvas.height);
+        const res=jsQR(img.data,img.width,img.height,{inversionAttempts:'dontInvert'});
+        if(res)codigo=res.data;
+      }
+      if(codigo)await procesarCodigo(codigo);
+    }catch(e){}
+  }
+  rafId=requestAnimationFrame(scanLoop);
+}
+
+// ===================== PROCESAMIENTO DE QR =====================
+async function procesarCodigo(codigo){
+  const ahora=Date.now();
+  // Evitar re-escanear el mismo código en menos de 3 segundos
+  if(codigo===lastCode&&ahora-lastCodeTime<3000)return;
+  lastCode=codigo;
+  lastCodeTime=ahora;
+
+  // Flash visual
+  flashVisual();
+
+  try{
+    // Buscar la caja en Supabase
+    const data=await get('cajas_congeladas',`codigo_qr=eq.${encodeURIComponent(codigo)}&limit=1`);
+    if(!data.length){
+      mostrarToast('warn','QR no reconocido','Este código no corresponde a ninguna caja registrada.');
+      return;
+    }
+    const caja=data[0];
+    if(caja.estado==='salida'){
+      mostrarToast('warn','Caja ya despachada',`${caja.variedad} — ya fue despachada anteriormente.`);
+      return;
+    }
+    // Registrar salida
+    await pat('cajas_congeladas',caja.id,{
+      estado:'salida',
+      fecha_salida:new Date().toISOString(),
+      destino_salida:localActual.nombre||localActual.name||String(localActual.id)
+    });
+    // Éxito
+    cntTotal++;
+    document.getElementById('cnt-total').textContent=cntTotal;
+    document.getElementById('cnt-last').textContent=caja.variedad||codigo;
+    sesion.unshift({caja,local:localActual.nombre||localActual.name,ts:new Date()});
+    mostrarToast('ok',caja.variedad,`${caja.cantidad} u. → ${localActual.nombre||localActual.name}`);
+  }catch(e){
+    mostrarToast('err','Error al registrar',e.message);
+  }
+}
+
+// ===================== UI =====================
+let toastTimer=null;
+function mostrarToast(tipo,titulo,sub){
+  const area=document.getElementById('toast-area');
+  const iconos={ok:'✅',err:'❌',warn:'⚠️'};
+  area.innerHTML=`<div class="toast ${tipo}">
+    <div class="toast-icon">${iconos[tipo]}</div>
+    <div>
+      <div class="toast-title">${titulo}</div>
+      ${sub?`<div class="toast-sub">${sub}</div>`:''}
+    </div>
+  </div>`;
+  if(toastTimer)clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{area.innerHTML=''},4000);
+}
+
+function flashVisual(){
+  const el=document.getElementById('flash');
+  el.classList.add('flash');
+  setTimeout(()=>el.classList.remove('flash'),150);
+}
+
+function abrirHistorial(){
+  const lista=document.getElementById('hist-list');
+  if(!sesion.length){
+    lista.innerHTML='<div class="hist-empty">Todavía no escaneaste ninguna caja en esta sesión.</div>';
+  } else {
+    lista.innerHTML=sesion.map(s=>`
+      <div class="hist-item">
+        <div class="hi-var">${s.caja.variedad} <span style="color:var(--text2);font-weight:400">· ${s.caja.cantidad} u.</span></div>
+        <div class="hi-sub">→ ${s.local} · ${s.ts.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</div>
+      </div>`).join('');
+  }
+  document.getElementById('historial-panel').classList.add('open');
+}
+
+function cerrarHistorial(){
+  document.getElementById('historial-panel').classList.remove('open');
+}
+
+// ===================== INIT =====================
+cargarLocales();
+</script>
+</body>
+</html>
