@@ -1,6 +1,6 @@
-const CACHE='scanner-v1';
+const CACHE='scanner-v2';
 self.addEventListener('install',e=>{
-  e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['/','./index.html','./manifest.json','./icon.svg'])));
+  e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['./','./index.html','./scanner-manifest.json','./scanner-icon.svg'])));
   self.skipWaiting();
 });
 self.addEventListener('activate',e=>{
